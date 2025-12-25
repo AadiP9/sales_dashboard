@@ -3,7 +3,7 @@ import pandas as pd
 import streamlit as st
 
 # Page config
-st.set__page_config(page_title="Sales Dashboard", layout="wide")
+st.set_page_config(page_title="Sales Dashboard", layout="wide")
 
 # Load data
 df = pd.read_csv("data/sales_data_sample.csv")
