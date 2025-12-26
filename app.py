@@ -4,31 +4,35 @@
 import pandas as pd
 import streamlit as st
 from groq import Groq
+import json
 
 # =====================================================
-# PAGE CONFIG (MUST BE FIRST)
+# PAGE CONFIG
 # =====================================================
 st.set_page_config(page_title="Sales Dashboard", layout="wide")
 
 # =====================================================
-# PAGE TITLE
+# TITLE
 # =====================================================
 st.title("📊 Sales Performance Dashboard")
-st.caption("Turning raw sales data into clear business insights")
+st.caption("Upload your sales data, explore insights, and ask questions in plain English")
 
 # =====================================================
-# LOAD DATA
+# CSV UPLOAD (CLIENT FEATURE)
 # =====================================================
-df = pd.read_csv("data/sales_data_sample.csv")
+uploaded_file = st.file_uploader("Upload your sales CSV file", type=["csv"])
+
+if uploaded_file is not None:
+    df = pd.read_csv(uploaded_file)
+else:
+    df = pd.read_csv("data/sales_data_sample.csv")
 
 # =====================================================
 # FEATURE ENGINEERING
 # =====================================================
 df["ORDERDATE"] = pd.to_datetime(df["ORDERDATE"])
 df["YearMonth"] = df["ORDERDATE"].dt.to_period("M").astype(str)
-# Convert numeric month to readable month name
 df["MonthName"] = df["ORDERDATE"].dt.month_name()
-
 
 # =====================================================
 # CLEAN DATA
@@ -58,197 +62,157 @@ country = st.sidebar.multiselect(
     default=df["COUNTRY"].unique()
 )
 
-# Apply filters
 filtered_df = df[
     (df["YEAR_ID"].isin(year)) &
     (df["PRODUCTLINE"].isin(product_line)) &
     (df["COUNTRY"].isin(country))
 ]
 
-# =====================================================
-# HANDLE EMPTY DATA AFTER FILTERS
-# =====================================================
 if filtered_df.empty:
-    st.warning("No data available for the selected filters.")
+    st.warning("No data available for selected filters.")
     st.stop()
 
 # =====================================================
-# KPI CALCULATIONS
-# =====================================================
-total_revenue = filtered_df["SALES"].sum()
-total_orders = filtered_df["ORDERNUMBER"].nunique()
-total_units = filtered_df["QUANTITYORDERED"].sum()
-
-best_product_line = (
-    filtered_df.groupby("PRODUCTLINE")["SALES"]
-    .sum()
-    .idxmax()
-)
-
-# =====================================================
-# DISPLAY KPIs
+# KPI SECTION
 # =====================================================
 col1, col2, col3, col4 = st.columns(4)
 
-col1.metric("Total Revenue", f"${total_revenue:,.0f}")
-col2.metric("Total Orders", total_orders)
-col3.metric("Units Sold", total_units)
-col4.metric("Top Product Line", best_product_line)
-
-# =====================================================
-# MONTHLY SALES TREND
-# =====================================================
-monthly_sales = (
-    filtered_df
-    .groupby("YearMonth")["SALES"]
-    .sum()
+col1.metric("Total Revenue", f"${filtered_df['SALES'].sum():,.0f}")
+col2.metric("Total Orders", filtered_df["ORDERNUMBER"].nunique())
+col3.metric("Units Sold", filtered_df["QUANTITYORDERED"].sum())
+col4.metric(
+    "Top Product Line",
+    filtered_df.groupby("PRODUCTLINE")["SALES"].sum().idxmax()
 )
 
+# =====================================================
+# DASHBOARD CHARTS
+# =====================================================
 st.subheader("📈 Monthly Sales Trend")
+monthly_sales = filtered_df.groupby("YearMonth")["SALES"].sum()
 st.line_chart(monthly_sales)
 
-st.caption(
-    f"Sales peaked in {monthly_sales.idxmax()} and were lowest in "
-    f"{monthly_sales.idxmin()}, indicating seasonality in demand."
-)
-
-# =====================================================
-# PRODUCT LINE PERFORMANCE
-# =====================================================
-product_sales = (
-    filtered_df
-    .groupby("PRODUCTLINE")["SALES"]
-    .sum()
-    .sort_values(ascending=False)
-)
-
 st.subheader("📊 Sales by Product Line")
-st.bar_chart(product_sales)
-
-st.caption(
-    f"{product_sales.idxmax()} is the top-performing product line, while "
-    f"{product_sales.idxmin()} contributes the least revenue."
-)
-
-# =====================================================
-# COUNTRY-WISE SALES
-# =====================================================
-country_sales = (
-    filtered_df
-    .groupby("COUNTRY")["SALES"]
-    .sum()
-    .sort_values(ascending=False)
-)
+st.bar_chart(filtered_df.groupby("PRODUCTLINE")["SALES"].sum())
 
 st.subheader("🌍 Sales by Country")
-st.bar_chart(country_sales)
-
-st.caption(
-    f"{country_sales.idxmax()} is the strongest market by revenue, suggesting "
-    "higher customer demand or better market penetration."
-)
-
-# =====================================================
-# DEAL SIZE ANALYSIS
-# =====================================================
-deal_sales = (
-    filtered_df
-    .groupby("DEALSIZE")["SALES"]
-    .sum()
-)
+st.bar_chart(filtered_df.groupby("COUNTRY")["SALES"].sum())
 
 st.subheader("💼 Revenue by Deal Size")
-st.bar_chart(deal_sales)
-
-st.caption(
-    f"{deal_sales.idxmax()} deals generate the highest revenue share, indicating "
-    "the importance of deal size in sales performance."
-)
+st.bar_chart(filtered_df.groupby("DEALSIZE")["SALES"].sum())
 
 # =====================================================
-# RAW DATA VIEW
+# RAW DATA
 # =====================================================
 with st.expander("View Raw Data"):
     st.dataframe(filtered_df)
 
 # =====================================================
-# CHATBOT (NATURAL LANGUAGE DATA Q&A)
+# CHATBOT CONFIG (SECURE)
 # =====================================================
-st.subheader("🤖 Ask Questions About the Sales Data")
+ALLOWED_METRICS = ["SALES", "QUANTITYORDERED", "PRICEEACH"]
+ALLOWED_GROUPBY = ["YearMonth", "MonthName", "YEAR_ID", "PRODUCTLINE", "COUNTRY", "DEALSIZE"]
+ALLOWED_OPERATIONS = ["sum", "mean", "min", "max"]
+ALLOWED_CHARTS = ["bar", "line", "none"]
 
-# Initialize Groq client
 client = Groq(api_key=st.secrets["OPENAI_API_KEY"])
 
-
 data_schema = """
-You are working with a pandas dataframe named df.
+You are an analytics assistant.
+
+Respond ONLY in valid JSON.
+Do NOT explain anything.
 
 Columns:
-- ORDERDATE (datetime)
-- SALES (float)
-- QUANTITYORDERED (int)
-- PRICEEACH (float)
-- PRODUCTLINE (category)
-- COUNTRY (category)
-- DEALSIZE (category)
-- YEAR_ID (int)
-- MONTH_ID (int)
-- MonthName (string, e.g. January, February, ...)
+- ORDERDATE
+- YearMonth
+- MonthName
+- SALES
+- QUANTITYORDERED
+- PRICEEACH
+- PRODUCTLINE
+- COUNTRY
+- DEALSIZE
+- YEAR_ID
 
-
-Notes:
-- SALES represents revenue
-- There is NO profit column
+JSON format:
+{
+  "metric": "SALES | QUANTITYORDERED | PRICEEACH",
+  "groupby": "YearMonth | MonthName | YEAR_ID | PRODUCTLINE | COUNTRY | DEALSIZE",
+  "year": 2005 or null,
+  "operation": "sum | mean | min | max",
+  "chart": "bar | line | none"
+}
 """
 
+# =====================================================
+# CHATBOT LOGIC (NO EXEC)
+# =====================================================
 def ask_data_question(question, df):
-    """
-    Uses Groq LLM to convert a natural language question
-    into pandas code, executes it, and returns the result.
-    """
-
-    prompt = f"""
-You are a senior data analyst.
-
-{data_schema}
-
-Rules:
-- Use ONLY pandas
-- Assume dataframe name is df
-- Store final answer in a variable named `result`
-- Do NOT print anything
-- Do NOT import libraries
-- When returning a month, prefer MonthName over numeric MONTH_ID
-
-Question:
-{question}
-"""
-
     completion = client.chat.completions.create(
-        model="llama-3.1-8b-instant",  # ✅ VALID FREE MODEL
-        messages=[{"role": "user", "content": prompt}],
+        model="llama-3.1-8b-instant",
+        messages=[{"role": "user", "content": f"{data_schema}\nQuestion:\n{question}"}],
         temperature=0
     )
 
-    generated_code = completion.choices[0].message.content
-    local_vars = {"df": df}
-
     try:
-        exec(generated_code, {}, local_vars)
-        return local_vars["result"], generated_code
-    except Exception as e:
-        return f"Error: {e}", generated_code
+        query = json.loads(completion.choices[0].message.content)
+    except json.JSONDecodeError:
+        return None, "Invalid response from model."
 
-# Chat UI
+    # Validate
+    if (
+        query["metric"] not in ALLOWED_METRICS or
+        query["groupby"] not in ALLOWED_GROUPBY or
+        query["operation"] not in ALLOWED_OPERATIONS or
+        query["chart"] not in ALLOWED_CHARTS
+    ):
+        return None, "Unsupported query."
+
+    data = df.copy()
+
+    if query["year"] is not None:
+        data = data[data["YEAR_ID"] == query["year"]]
+
+    grouped = data.groupby(query["groupby"])[query["metric"]]
+
+    if query["operation"] == "sum":
+        result_series = grouped.sum()
+    elif query["operation"] == "mean":
+        result_series = grouped.mean()
+    elif query["operation"] == "min":
+        result_series = grouped.min()
+    else:
+        result_series = grouped.max()
+
+    return result_series, query
+
+# =====================================================
+# CHAT UI
+# =====================================================
+st.subheader("🤖 Ask Questions About the Data")
+
 user_question = st.text_input(
     "Ask a question (e.g. Which was the lowest sales month in 2005?)"
 )
 
 if user_question:
-    answer, code_used = ask_data_question(user_question, filtered_df)
+    result, query = ask_data_question(user_question, filtered_df)
 
-    st.markdown("### ✅ Answer")
-    st.write(answer)
+    if isinstance(result, str):
+        st.error(result)
+    else:
+        st.markdown("### ✅ Answer")
 
-    with st.expander("How this was computed"):
-        st.code(code_used, language="python")
+        if query["operation"] in ["min", "max"]:
+            st.write(result.idxmin() if query["operation"] == "min" else result.idxmax())
+        else:
+            st.write(result)
+
+        if query["chart"] == "bar":
+            st.bar_chart(result)
+        elif query["chart"] == "line":
+            st.line_chart(result)
+
+        with st.expander("How this was computed"):
+            st.json(query)
