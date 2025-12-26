@@ -26,6 +26,9 @@ df = pd.read_csv("data/sales_data_sample.csv")
 # =====================================================
 df["ORDERDATE"] = pd.to_datetime(df["ORDERDATE"])
 df["YearMonth"] = df["ORDERDATE"].dt.to_period("M").astype(str)
+# Convert numeric month to readable month name
+df["MonthName"] = df["ORDERDATE"].dt.month_name()
+
 
 # =====================================================
 # CLEAN DATA
@@ -176,6 +179,7 @@ st.subheader("🤖 Ask Questions About the Sales Data")
 # Initialize Groq client
 client = Groq(api_key=st.secrets["OPENAI_API_KEY"])
 
+
 data_schema = """
 You are working with a pandas dataframe named df.
 
@@ -189,6 +193,8 @@ Columns:
 - DEALSIZE (category)
 - YEAR_ID (int)
 - MONTH_ID (int)
+- MonthName (string, e.g. January, February, ...)
+
 
 Notes:
 - SALES represents revenue
@@ -212,6 +218,7 @@ Rules:
 - Store final answer in a variable named `result`
 - Do NOT print anything
 - Do NOT import libraries
+- When returning a month, prefer MonthName over numeric MONTH_ID
 
 Question:
 {question}
