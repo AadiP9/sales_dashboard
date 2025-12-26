@@ -1,26 +1,40 @@
+# =====================================================
 # IMPORT LIBRARIES
+# =====================================================
 import pandas as pd
 import streamlit as st
 from groq import Groq
 
+# =====================================================
 # PAGE CONFIG (MUST BE FIRST)
+# =====================================================
 st.set_page_config(page_title="Sales Dashboard", layout="wide")
 
+# =====================================================
 # PAGE TITLE
+# =====================================================
 st.title("📊 Sales Performance Dashboard")
 st.caption("Turning raw sales data into clear business insights")
 
+# =====================================================
 # LOAD DATA
+# =====================================================
 df = pd.read_csv("data/sales_data_sample.csv")
 
+# =====================================================
 # FEATURE ENGINEERING
+# =====================================================
 df["ORDERDATE"] = pd.to_datetime(df["ORDERDATE"])
 df["YearMonth"] = df["ORDERDATE"].dt.to_period("M").astype(str)
 
+# =====================================================
 # CLEAN DATA
+# =====================================================
 df.dropna(inplace=True)
 
+# =====================================================
 # SIDEBAR FILTERS
+# =====================================================
 st.sidebar.header("Filters")
 
 year = st.sidebar.multiselect(
@@ -48,12 +62,16 @@ filtered_df = df[
     (df["COUNTRY"].isin(country))
 ]
 
-# HANDLE EMPTY FILTER RESULT
+# =====================================================
+# HANDLE EMPTY DATA AFTER FILTERS
+# =====================================================
 if filtered_df.empty:
     st.warning("No data available for the selected filters.")
     st.stop()
 
+# =====================================================
 # KPI CALCULATIONS
+# =====================================================
 total_revenue = filtered_df["SALES"].sum()
 total_orders = filtered_df["ORDERNUMBER"].nunique()
 total_units = filtered_df["QUANTITYORDERED"].sum()
@@ -64,7 +82,9 @@ best_product_line = (
     .idxmax()
 )
 
+# =====================================================
 # DISPLAY KPIs
+# =====================================================
 col1, col2, col3, col4 = st.columns(4)
 
 col1.metric("Total Revenue", f"${total_revenue:,.0f}")
@@ -72,7 +92,9 @@ col2.metric("Total Orders", total_orders)
 col3.metric("Units Sold", total_units)
 col4.metric("Top Product Line", best_product_line)
 
+# =====================================================
 # MONTHLY SALES TREND
+# =====================================================
 monthly_sales = (
     filtered_df
     .groupby("YearMonth")["SALES"]
@@ -87,7 +109,9 @@ st.caption(
     f"{monthly_sales.idxmin()}, indicating seasonality in demand."
 )
 
+# =====================================================
 # PRODUCT LINE PERFORMANCE
+# =====================================================
 product_sales = (
     filtered_df
     .groupby("PRODUCTLINE")["SALES"]
@@ -103,7 +127,9 @@ st.caption(
     f"{product_sales.idxmin()} contributes the least revenue."
 )
 
+# =====================================================
 # COUNTRY-WISE SALES
+# =====================================================
 country_sales = (
     filtered_df
     .groupby("COUNTRY")["SALES"]
@@ -119,7 +145,9 @@ st.caption(
     "higher customer demand or better market penetration."
 )
 
+# =====================================================
 # DEAL SIZE ANALYSIS
+# =====================================================
 deal_sales = (
     filtered_df
     .groupby("DEALSIZE")["SALES"]
@@ -134,13 +162,18 @@ st.caption(
     "the importance of deal size in sales performance."
 )
 
+# =====================================================
 # RAW DATA VIEW
+# =====================================================
 with st.expander("View Raw Data"):
     st.dataframe(filtered_df)
 
+# =====================================================
 # CHATBOT (NATURAL LANGUAGE DATA Q&A)
+# =====================================================
 st.subheader("🤖 Ask Questions About the Sales Data")
 
+# Initialize Groq client
 client = Groq(api_key=st.secrets["OPENAI_API_KEY"])
 
 data_schema = """
@@ -163,14 +196,20 @@ Notes:
 """
 
 def ask_data_question(question, df):
+    """
+    Uses Groq LLM to convert a natural language question
+    into pandas code, executes it, and returns the result.
+    """
+
     prompt = f"""
 You are a senior data analyst.
 
 {data_schema}
 
-Task:
-- Write pandas code to answer the question
-- Store the final answer in a variable named `result`
+Rules:
+- Use ONLY pandas
+- Assume dataframe name is df
+- Store final answer in a variable named `result`
 - Do NOT print anything
 - Do NOT import libraries
 
@@ -179,7 +218,7 @@ Question:
 """
 
     completion = client.chat.completions.create(
-        model="llama-3.1-8b-instant",
+        model="llama-3.1-8b-instant",  # ✅ VALID FREE MODEL
         messages=[{"role": "user", "content": prompt}],
         temperature=0
     )
@@ -193,6 +232,7 @@ Question:
     except Exception as e:
         return f"Error: {e}", generated_code
 
+# Chat UI
 user_question = st.text_input(
     "Ask a question (e.g. Which was the lowest sales month in 2005?)"
 )
