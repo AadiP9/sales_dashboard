@@ -12,28 +12,24 @@ import json
 st.set_page_config(page_title="Sales Dashboard", layout="wide")
 
 # =====================================================
-# TITLE & SESSION STATE
+# TITLE
 # =====================================================
 st.title("📊 Sales Performance Dashboard")
 st.caption("Upload your sales data, explore insights, and ask questions in plain English")
 
-# Initialize chat history to keep the conversation alive
-if "messages" not in st.session_state:
-    st.session_state.messages = []
-
 # =====================================================
-# CSV UPLOAD
+# CSV UPLOAD (CLIENT FEATURE)
 # =====================================================
 uploaded_file = st.file_uploader("Upload your sales CSV file", type=["csv"])
 
 if uploaded_file is not None:
-    df = pd.read_csv(uploaded_file, encoding='ISO-8859-1')
+    df = pd.read_csv(uploaded_file, encoding='ISO-8859-1') # Added encoding handling for common sales CSVs
 else:
-    # Fallback to local file if available, or create dummy data for testing
+    # Ensure you have this file in your repo or handle the error gracefully
     try:
         df = pd.read_csv("data/sales_data_sample.csv", encoding='ISO-8859-1')
-    except:
-        st.warning("Please upload a CSV file to begin.")
+    except FileNotFoundError:
+        st.error("Default data file not found. Please upload a CSV.")
         st.stop()
 
 # =====================================================
@@ -44,12 +40,34 @@ df["YearMonth"] = df["ORDERDATE"].dt.to_period("M").astype(str)
 df["MonthName"] = df["ORDERDATE"].dt.month_name()
 
 # =====================================================
+# CLEAN DATA
+# =====================================================
+df.dropna(inplace=True)
+
+# =====================================================
 # SIDEBAR FILTERS
 # =====================================================
 st.sidebar.header("Filters")
-year = st.sidebar.multiselect("Select Year", options=sorted(df["YEAR_ID"].unique()), default=sorted(df["YEAR_ID"].unique()))
-product_line = st.sidebar.multiselect("Product Line", options=df["PRODUCTLINE"].unique(), default=df["PRODUCTLINE"].unique())
-country = st.sidebar.multiselect("Country", options=df["COUNTRY"].unique(), default=df["COUNTRY"].unique())
+
+# Dynamic Years
+all_years = sorted(df["YEAR_ID"].unique())
+year = st.sidebar.multiselect(
+    "Select Year",
+    options=all_years,
+    default=all_years
+)
+
+product_line = st.sidebar.multiselect(
+    "Product Line",
+    options=df["PRODUCTLINE"].unique(),
+    default=df["PRODUCTLINE"].unique()
+)
+
+country = st.sidebar.multiselect(
+    "Country",
+    options=df["COUNTRY"].unique(),
+    default=df["COUNTRY"].unique()
+)
 
 filtered_df = df[
     (df["YEAR_ID"].isin(year)) &
@@ -57,125 +75,143 @@ filtered_df = df[
     (df["COUNTRY"].isin(country))
 ]
 
+if filtered_df.empty:
+    st.warning("No data available for selected filters.")
+    st.stop()
+
+# =====================================================
+# ⚠️ DATA INTELLIGENCE WARNING (NEW FEATURE)
+# =====================================================
+# Automatically detect if 2005 is selected and warn about incomplete data
+if 2005 in year:
+    max_date_2005 = df[df["YEAR_ID"] == 2005]["ORDERDATE"].max()
+    st.warning(f"⚠️ **Analyst Note:** Data for 2005 is incomplete. It ends on {max_date_2005.strftime('%B %Y')}. Comparisons with full years (2003, 2004) may appear lower.")
+
 # =====================================================
 # KPI SECTION
 # =====================================================
 col1, col2, col3, col4 = st.columns(4)
+
 col1.metric("Total Revenue", f"${filtered_df['SALES'].sum():,.0f}")
 col2.metric("Total Orders", filtered_df["ORDERNUMBER"].nunique())
 col3.metric("Units Sold", filtered_df["QUANTITYORDERED"].sum())
-if not filtered_df.empty:
-    col4.metric("Top Product Line", filtered_df.groupby("PRODUCTLINE")["SALES"].sum().idxmax())
+col4.metric(
+    "Top Product Line",
+    filtered_df.groupby("PRODUCTLINE")["SALES"].sum().idxmax()
+)
 
 # =====================================================
-# CHARTS
+# DASHBOARD CHARTS (Optimized Sorting)
 # =====================================================
-st.subheader("📈 Business Overview")
+st.subheader("📈 Monthly Sales Trend")
+monthly_sales = filtered_df.groupby("YearMonth")["SALES"].sum()
+st.line_chart(monthly_sales)
+
+# Row 2
 c1, c2 = st.columns(2)
+
 with c1:
-    st.markdown("### Monthly Sales")
-    st.line_chart(filtered_df.groupby("YearMonth")["SALES"].sum())
+    st.subheader("📊 Sales by Product Line")
+    # Sort values descending for better readability
+    product_sales = filtered_df.groupby("PRODUCTLINE")["SALES"].sum().sort_values(ascending=False)
+    st.bar_chart(product_sales)
+
 with c2:
-    st.markdown("### Sales by Product")
-    st.bar_chart(filtered_df.groupby("PRODUCTLINE")["SALES"].sum().sort_values(ascending=False))
+    st.subheader("🌍 Sales by Country")
+    country_sales = filtered_df.groupby("COUNTRY")["SALES"].sum().sort_values(ascending=False)
+    st.bar_chart(country_sales)
+
+st.subheader("💼 Revenue by Deal Size")
+deal_sales = filtered_df.groupby("DEALSIZE")["SALES"].sum().sort_values(ascending=False)
+st.bar_chart(deal_sales)
 
 # =====================================================
-# ADVANCED AI LOGIC (THE FIX)
+# RAW DATA
+# =====================================================
+with st.expander("View Raw Data"):
+    st.dataframe(filtered_df)
+
+# =====================================================
+# CHATBOT LOGIC (UPGRADED FOR "WHY" QUESTIONS)
 # =====================================================
 client = Groq(api_key=st.secrets["OPENAI_API_KEY"])
 
-# We feed the AI a summary of the CURRENT filtered data
-data_summary = f"""
-Current Data Context:
-- Total Revenue: ${filtered_df['SALES'].sum():,.2f}
-- Top Selling Product: {filtered_df.groupby('PRODUCTLINE')['SALES'].sum().idxmax() if not filtered_df.empty else 'N/A'}
-- Top Country: {filtered_df.groupby('COUNTRY')['SALES'].sum().idxmax() if not filtered_df.empty else 'N/A'}
-- Active Years: {sorted(filtered_df['YEAR_ID'].unique())}
+# We create a "Summary" of the dataset to give the AI context
+# This lets it answer "Why" questions without needing to see all 10k rows
+data_context = f"""
+Dataset Summary:
+- Date Range: {df['ORDERDATE'].min().date()} to {df['ORDERDATE'].max().date()}
+- Total Years: {sorted(df['YEAR_ID'].unique())}
+- Note: 2005 data ends in May, making it a partial year.
+- Columns: ORDERDATE, SALES, PRODUCTLINE, COUNTRY, DEALSIZE.
 """
 
-def ask_ai(question, context):
-    # This prompt now allows 3 types of answers: DATA, REASONING, and STRATEGY
+def ask_data_question(question, context):
     system_prompt = f"""
-    You are an expert Business Intelligence Consultant. 
+    You are an expert Data Analyst.
     {context}
     
-    Categorize the user's question into one of three types and return valid JSON ONLY.
-
-    TYPE 1: DATA QUERY (The user asks for a specific number or chart)
-    Format:
+    If the user asks for specific numbers (e.g., "highest sales month"), reply in JSON format:
     {{
       "type": "data",
-      "metric": "SALES | QUANTITYORDERED | PRICEEACH",
-      "groupby": "YearMonth | PRODUCTLINE | COUNTRY | DEALSIZE",
-      "operation": "sum | mean | count"
+      "metric": "SALES",
+      "groupby": "YearMonth", 
+      "operation": "sum",
+      "chart": "bar"
     }}
 
-    TYPE 2: EXPLANATION (The user asks "Why" something happened)
-    Format:
+    If the user asks a "Why" or "Explain" question (e.g., "Why did sales drop in 2005?"), reply in JSON format with an explanation:
     {{
       "type": "text",
-      "response": "Explain the insight using the provided data summary. Keep it professional and short."
+      "answer": "Your explanation here based on the dataset summary provided."
     }}
-
-    TYPE 3: STRATEGY (The user asks "How" to improve or specific business advice)
-    Format:
-    {{
-      "type": "strategy",
-      "response": "Provide 3 actionable business tips based on the data context (e.g., if sales are low in France, suggest marketing there)."
-    }}
+    
+    Return ONLY valid JSON.
     """
     
+    completion = client.chat.completions.create(
+        model="llama-3.1-8b-instant",
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": question}
+        ],
+        temperature=0
+    )
+
     try:
-        completion = client.chat.completions.create(
-            model="llama-3.1-8b-instant",
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": question}
-            ],
-            temperature=0.3
-        )
-        return json.loads(completion.choices[0].message.content)
-    except Exception as e:
-        return {"type": "error", "response": f"Error: {str(e)}"}
+        response = json.loads(completion.choices[0].message.content)
+        return response
+    except json.JSONDecodeError:
+        return {"type": "error", "message": "Failed to process query."}
 
 # =====================================================
-# CHAT INTERFACE
+# CHAT UI
 # =====================================================
 st.markdown("---")
-st.subheader("🤖 AI Business Consultant")
+st.subheader("🤖 AI Analyst (Ask 'Why')")
 
-# Display chat history
-for message in st.session_state.messages:
-    with st.chat_message(message["role"]):
-        st.write(message["content"])
+user_question = st.text_input(
+    "Ask a question (e.g. 'Why are 2005 sales lower?' or 'Which product sells best?')"
+)
 
-# User Input
-if prompt := st.chat_input("Ask about data (e.g., 'Total sales in 2004') or strategy (e.g., 'How can we sell more cars?')"):
+if user_question:
+    response = ask_data_question(user_question, data_context)
+
+    if response["type"] == "text":
+        st.info(f"🤖 **Analysis:** {response['answer']}")
     
-    # Add user message to history
-    st.session_state.messages.append({"role": "user", "content": prompt})
-    with st.chat_message("user"):
-        st.write(prompt)
-
-    # Get AI Response
-    with st.chat_message("assistant"):
-        with st.spinner("Thinking..."):
-            result = ask_ai(prompt, data_summary)
+    elif response["type"] == "data":
+        # Process data query logic here (similar to your previous code)
+        st.markdown("### 📊 Data Result")
+        
+        # Simple dynamic grouping based on AI response
+        if response["groupby"] == "YearMonth":
+            data = filtered_df.groupby("YearMonth")[response["metric"]].sum()
+        else:
+            data = filtered_df.groupby(response["groupby"])[response["metric"]].sum().sort_values(ascending=False)
             
-            if result["type"] == "text" or result["type"] == "strategy":
-                st.write(result["response"])
-                st.session_state.messages.append({"role": "assistant", "content": result["response"]})
-            
-            elif result["type"] == "data":
-                # Compute the data locally
-                try:
-                    grouped_data = filtered_df.groupby(result["groupby"])[result["metric"]].agg(result["operation"]).sort_values(ascending=False)
-                    st.bar_chart(grouped_data)
-                    response_text = f"Here is the {result['metric']} grouped by {result['groupby']}."
-                    st.write(response_text)
-                    st.session_state.messages.append({"role": "assistant", "content": response_text})
-                except Exception as e:
-                    st.error(f"Could not generate chart: {e}")
-            
-            else:
-                st.error("I couldn't process that request.")
+        st.bar_chart(data)
+        st.write(f"Showing {response['metric']} by {response['groupby']}")
+        
+    else:
+        st.error("Could not understand the question. Try being more specific.")
