@@ -188,7 +188,7 @@ def ask_data_question(question, context):
 # CHAT UI
 # =====================================================
 st.markdown("---")
-st.subheader("🤖 AI Analyst (Ask 'Why')")
+st.subheader("🤖 AI Analyst")
 
 user_question = st.text_input(
     "Ask a question (e.g. 'Why are 2005 sales lower?' or 'Which product sells best?')"
