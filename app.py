@@ -5,7 +5,6 @@ import pandas as pd
 import streamlit as st
 from groq import Groq
 import json
-import io
 
 # =====================================================
 # PAGE CONFIG
@@ -21,59 +20,12 @@ st.caption("Upload your sales data, explore insights, and ask questions in plain
 # =====================================================
 # CSV UPLOAD (CLIENT FEATURE)
 # =====================================================
-REQUIRED_COLUMNS = {
-    "ORDERDATE",
-    "YEAR_ID",
-    "PRODUCTLINE",
-    "COUNTRY",
-    "SALES",
-    "ORDERNUMBER",
-    "QUANTITYORDERED",
-    "DEALSIZE",
-    "PRICEEACH",
-}
-
-
-def load_sales_data(file_source):
-    if isinstance(file_source, str):
-        df = pd.read_csv(file_source)
-    else:
-        file_bytes = file_source.getvalue()
-        encodings_to_try = ["utf-8", "utf-8-sig", "cp1252", "ISO-8859-1"]
-
-        for encoding in encodings_to_try:
-            try:
-                df = pd.read_csv(io.BytesIO(file_bytes), encoding=encoding)
-                break
-            except UnicodeDecodeError:
-                pass
-        else:
-            decoded_text = file_bytes.decode("utf-8", errors="replace")
-            df = pd.read_csv(io.StringIO(decoded_text))
-
-    df.columns = df.columns.str.strip()
-
-    missing_columns = REQUIRED_COLUMNS.difference(df.columns)
-    if missing_columns:
-        missing_list = ", ".join(sorted(missing_columns))
-        raise ValueError(f"Missing required columns: {missing_list}")
-
-    return df
-
-
 uploaded_file = st.file_uploader("Upload your sales CSV file", type=["csv"])
 
-try:
-    if uploaded_file is not None:
-        df = load_sales_data(uploaded_file)
-    else:
-        df = load_sales_data("data/sales_data_sample.csv")
-except Exception as exc:
-    st.error(
-        "We couldn't read that CSV. Please upload a file with the expected sales "
-        f"columns. Details: {exc}"
-    )
-    st.stop()
+if uploaded_file is not None:
+    df = pd.read_csv(uploaded_file)
+else:
+    df = pd.read_csv("data/sales_data_sample.csv")
 
 # =====================================================
 # FEATURE ENGINEERING
