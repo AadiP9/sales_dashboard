@@ -5,6 +5,7 @@ import pandas as pd
 import streamlit as st
 from groq import Groq
 import json
+import io
 
 # =====================================================
 # PAGE CONFIG
@@ -20,12 +21,31 @@ st.caption("Upload your sales data, explore insights, and ask questions in plain
 # =====================================================
 # CSV UPLOAD (CLIENT FEATURE)
 # =====================================================
+def load_sales_data(file_source):
+    if isinstance(file_source, str):
+        return pd.read_csv(file_source)
+
+    file_bytes = file_source.getvalue()
+    encodings_to_try = ["utf-8", "utf-8-sig", "cp1252", "ISO-8859-1"]
+
+    for encoding in encodings_to_try:
+        try:
+            return pd.read_csv(io.BytesIO(file_bytes), encoding=encoding)
+        except UnicodeDecodeError:
+            pass
+
+    decoded_text = file_bytes.decode("utf-8", errors="replace")
+    return pd.read_csv(io.StringIO(decoded_text))
+
+
 uploaded_file = st.file_uploader("Upload your sales CSV file", type=["csv"])
 
 if uploaded_file is not None:
-    df = pd.read_csv(uploaded_file)
+    df = load_sales_data(uploaded_file)
+    data_signature = f"upload:{uploaded_file.name}:{uploaded_file.size}"
 else:
-    df = pd.read_csv("data/sales_data_sample.csv")
+    df = load_sales_data("data/sales_data_sample.csv")
+    data_signature = "sample"
 
 # =====================================================
 # FEATURE ENGINEERING
@@ -51,12 +71,21 @@ for col in string_cols:
 # =====================================================
 # CLEAN DATA
 # =====================================================
-df.dropna(inplace=True)
+df.dropna(
+    subset=["ORDERDATE", "YEAR_ID", "PRODUCTLINE", "COUNTRY", "SALES"],
+    inplace=True
+)
 
 # =====================================================
 # SIDEBAR FILTERS
 # =====================================================
 st.sidebar.header("Filters")
+
+if st.session_state.get("data_signature") != data_signature:
+    st.session_state["data_signature"] = data_signature
+    st.session_state["year_filter"] = sorted(df["YEAR_ID"].unique())
+    st.session_state["product_line_filter"] = sorted(df["PRODUCTLINE"].unique())
+    st.session_state["country_filter"] = sorted(df["COUNTRY"].unique())
 
 country_values = sorted(df["COUNTRY"].unique())
 if len(country_values) <= 1:
@@ -68,19 +97,22 @@ if len(country_values) <= 1:
 year = st.sidebar.multiselect(
     "Select Year",
     options=sorted(df["YEAR_ID"].unique()),
-    default=sorted(df["YEAR_ID"].unique())
+    default=sorted(df["YEAR_ID"].unique()),
+    key="year_filter"
 )
 
 product_line = st.sidebar.multiselect(
     "Product Line",
-    options=df["PRODUCTLINE"].unique(),
-    default=df["PRODUCTLINE"].unique()
+    options=sorted(df["PRODUCTLINE"].unique()),
+    default=sorted(df["PRODUCTLINE"].unique()),
+    key="product_line_filter"
 )
 
 country = st.sidebar.multiselect(
     "Country",
     options=country_values,
-    default=country_values
+    default=country_values,
+    key="country_filter"
 )
 
 filtered_df = df[
