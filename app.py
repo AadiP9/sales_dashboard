@@ -34,6 +34,20 @@ df["ORDERDATE"] = pd.to_datetime(df["ORDERDATE"])
 df["YearMonth"] = df["ORDERDATE"].dt.to_period("M").astype(str)
 df["MonthName"] = df["ORDERDATE"].dt.month_name()
 
+# Normalize common string columns to avoid hidden whitespace issues
+string_cols = [
+    "COUNTRY",
+    "PRODUCTLINE",
+    "DEALSIZE",
+    "STATUS",
+    "CITY",
+    "STATE",
+    "TERRITORY",
+]
+for col in string_cols:
+    if col in df.columns:
+        df[col] = df[col].astype(str).str.strip()
+
 # =====================================================
 # CLEAN DATA
 # =====================================================
@@ -43,6 +57,13 @@ df.dropna(inplace=True)
 # SIDEBAR FILTERS
 # =====================================================
 st.sidebar.header("Filters")
+
+country_values = sorted(df["COUNTRY"].unique())
+if len(country_values) <= 1:
+    st.sidebar.warning(
+        "Only one country found in the data. If this is unexpected, check the "
+        "uploaded CSV for extra spaces or missing country values."
+    )
 
 year = st.sidebar.multiselect(
     "Select Year",
@@ -58,8 +79,8 @@ product_line = st.sidebar.multiselect(
 
 country = st.sidebar.multiselect(
     "Country",
-    options=df["COUNTRY"].unique(),
-    default=df["COUNTRY"].unique()
+    options=country_values,
+    default=country_values
 )
 
 filtered_df = df[
